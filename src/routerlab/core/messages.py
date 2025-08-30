@@ -1,30 +1,42 @@
 # src/routerlab/core/messages.py
 # Esquema y utilidades de mensajes
 from pydantic import BaseModel, Field
-from typing import Literal, Any
+from typing import Literal, Any, Optional
 import uuid
 
 # Detectar si es Pydantic v2 o v1
-_IS_PD_V2 = hasattr(BaseModel, "model_dump")
+try:
+    from pydantic import BaseModel, Field, ConfigDict  # v2
+    _IS_PD_V2 = True
+except Exception:
+    from pydantic import BaseModel, Field              # v1
+    _IS_PD_V2 = False
 
 Proto = Literal["dijkstra", "flooding", "lsr", "dvr"]
 Type  = Literal["message", "echo", "info", "hello"]
 
 class Message(BaseModel):
-    # Config v1
-    class Config:
-        allow_population_by_field_name = True
+    if _IS_PD_V2:
+        model_config = ConfigDict(populate_by_name=True)  # v2 OK
+    else:
+        class Config:                                     # v1 compat
+            allow_population_by_field_name = True
 
     # Campos
     proto: Proto
     type:  Type
     id:    str = Field(default_factory=lambda: str(uuid.uuid4()))
-    # "from" es palabra reservada en Python -> usamos from_ con alias="from"
+    # salto previo
     from_: str = Field(alias="from")
-    to:    str
+    # origin es el emisor original no cambia en cada salto
+    origin: Optional[str] = None
+
+    to:    str = "*"
+
     ttl:   int = Field(ge=0, le=64, default=8)
     headers: list[dict[str, Any]] = []
     payload: dict[str, Any] | str
+    via: Optional[str] = None
 
     def dec(self) -> "Message":
         """Copia con TTL decrementado (no baja de 0). Compatible v1/v2."""

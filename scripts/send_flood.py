@@ -10,6 +10,7 @@ msg = {
     "type": "message",
     "id": str(uuid.uuid4()),
     "from": src,
+    "origin": src,
     "to": to,
     "ttl": 8,
     "headers": [],
