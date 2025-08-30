@@ -10,4 +10,8 @@ install: venv
 	$(PIP) install -U pip
 	$(PIP) install -r requirements.txt
 run:
-	$(PYBIN) -m routerlab.cli --proto=$(PROTO) --driver=socket --node=$(NODE) --topo=configs/topo-sample.json --names=configs/names-sample.json --port=$(PORT)
+	PYTHONPATH=src $(PYBIN) -m routerlab.cli \
+	  --proto=$(PROTO) --driver=socket --node=$(NODE) \
+	  --topo=$(TOPO) --names=$(NAMES) --port=$(PORT)
+send:
+	$(PYBIN) scripts/send_flood.py 127.0.0.1 $(PORT) $(SRC) $(TO) "$(MSG)"
