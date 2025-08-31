@@ -53,8 +53,14 @@ class Forwarder:
             await self._rq.put({"type": msg.type, "from": msg.from_, "payload": msg.payload})
 
         # Entrega local de DATA
-        if msg.type == "message" and msg.to == self._me:
-            print(f"[{self._me}] RX from {msg.origin}: {msg.payload}")
+        if msg.type == "message":
+            if msg.to == self._me:
+                # Unicast: entrego y NO reenvoo
+                print(f"[{self._me}] RX from {msg.origin}: {msg.payload}")
+                return
+            if msg.to == "*":
+                # Broadcast: entrego localmente PERO continuo flooding
+                print(f"[{self._me}] RX from {msg.origin}: {msg.payload}")
 
         # Encaminamiento segun proto
         if msg.proto == "flooding":
@@ -71,7 +77,7 @@ class Forwarder:
                     continue
                 tasks.append(self._send(nbr, wire))
             if tasks:
-                await asyncio.gather(*tasks)
+                results = await asyncio.gather(*tasks, return_exceptions=True)
             return
 
         if msg.proto == "dvr":
