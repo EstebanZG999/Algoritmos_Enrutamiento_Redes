@@ -15,3 +15,5 @@ run:
 	  --topo=$(TOPO) --names=$(NAMES) --port=$(PORT)
 send:
 	$(PYBIN) scripts/send_flood.py 127.0.0.1 $(PORT) $(SRC) $(TO) "$(MSG)"
+test:
+	PYTHONPATH=src $(PYBIN) -m pytest -q $(TEST)
