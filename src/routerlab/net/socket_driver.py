@@ -49,9 +49,24 @@ class SocketDriver(Transport):
         if not host_port:
             return
         host, port_str = host_port.split(":")
-        reader, writer = await asyncio.open_connection(host=host, port=int(port_str))
-        wire = (json.dumps(message) + "\n").encode("utf-8")
-        writer.write(wire)
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
+
+        try:
+            reader, writer = await asyncio.open_connection(host=host, port=int(port_str))
+            wire = (json.dumps(message, separators=(",", ":")) + "\n").encode("utf-8")
+            writer.write(wire)
+            await writer.drain()
+        except (ConnectionRefusedError, OSError) as e:
+            return
+        except Exception:
+            return
+        finally:
+            try:
+                if 'writer' in locals():
+                    writer.close()
+                    try:
+                        await writer.wait_closed()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
