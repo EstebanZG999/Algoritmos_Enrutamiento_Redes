@@ -14,6 +14,8 @@ run:
 	  --proto=$(PROTO) --driver=socket --node=$(NODE) \
 	  --topo=$(TOPO) --names=$(NAMES) --port=$(PORT)
 send:
-	$(PYBIN) scripts/send_flood.py 127.0.0.1 $(PORT) $(SRC) $(TO) "$(MSG)"
+	$(PYBIN) scripts/send_flood.py 127.0.0.1 $(PORT) $(SRC) '$(TO)' "$(MSG)"
+broadcast:
+	$(PYBIN) scripts/send_flood.py 127.0.0.1 $(PORT) $(SRC) '*' "$(MSG)"
 test:
 	PYTHONPATH=src $(PYBIN) -m pytest -q $(TEST)
