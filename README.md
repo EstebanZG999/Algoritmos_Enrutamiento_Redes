@@ -23,11 +23,8 @@ La app levanta “routers” A/B/C que se comunican mediante el driver seleccion
    - [Opción B: Redis (con Docker)](#opción-b-redis-con-docker)
 6. [Algoritmos](#algoritmos)
 7. [Formato de mensajes](#formato-de-mensajes)
-8. [Makefile – objetivos útiles](#makefile--objetivos-útiles)
-9. [Scripts](#scripts)
-10. [Pruebas (pytest)](#pruebas-pytest)
-11. [Solución de problemas](#solución-de-problemas)
-12. [Roadmap / pendientes](#roadmap--pendientes)
+8. [Scripts](#scripts)
+9. [Pruebas (pytest)](#pruebas-pytest)
 
 ## Estructura del repositorio
 
@@ -233,7 +230,7 @@ Ejemplo de **DATA**:
   "id": "<uuid4>",
   "from": "A",
   "origin": "A",
-  "to": "C" | "*",
+  "to": "C" "*",
   "ttl": 8,
   "headers": [],
   "payload": "hola C!"
