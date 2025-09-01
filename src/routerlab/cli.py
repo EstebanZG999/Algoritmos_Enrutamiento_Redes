@@ -16,17 +16,30 @@ def main():
     p.add_argument(
         "--driver",
         required=True,
-        choices=["socket"],            # xmpp llegara despues
+        choices=["socket", "redis"],
         help="Transporte subyacente",
     )
     p.add_argument("--node", required=True, help="ID del nodo (p.ej. A)")
     p.add_argument("--topo", required=True, help="ruta a topo-*.json")
     p.add_argument("--names", required=True, help="ruta a names-*.json")
-    p.add_argument("--port", type=int, required=True, help="puerto TCP local")
+    p.add_argument("--port", type=int, default=0,
+                   help="Solo para socket. En XMPP/Redis se ignora.")
     args = p.parse_args()
 
     # Driver de red (TCP local)
-    transport = SocketDriver(node=args.node, port=args.port, names_path=args.names)
+    if args.driver == "socket" and (not args.port or args.port <= 0):
+        p.error("--port es requerido y debe ser > 0 con --driver=socket")
+
+    if args.driver == "socket":
+        transport = SocketDriver(node=args.node, port=args.port, names_path=args.names)
+    elif args.driver == "xmpp":
+        from routerlab.net.xmpp_driver import XMPPDriver
+        transport = XMPPDriver(node=args.node, names_path=args.names)
+    elif args.driver == "redis":
+        from routerlab.net.redis_driver import RedisDriver
+        transport = RedisDriver(node=args.node, names_path=args.names)
+    else:
+        raise ValueError("driver no soportado")
 
     # Router con el protocolo seleccionado
     node = RouterNode(
@@ -39,7 +52,6 @@ def main():
     try:
         asyncio.run(node.run())
     except KeyboardInterrupt:
-        # Salida limpia con Ctrl+C
         pass
 
 if __name__ == "__main__":

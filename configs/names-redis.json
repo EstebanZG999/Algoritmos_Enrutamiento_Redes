@@ -1,0 +1,8 @@
+{
+  "type": "names",
+  "config": {
+    "A": "router:A",
+    "B": "router:B",
+    "C": "router:C"
+  }
+}
