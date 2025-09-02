@@ -125,41 +125,49 @@ make install
 
 ## Ejecución
 
-Puedes correr **Flooding** o **DVR** con cualquiera de los drivers.
+Puedes correr **Flooding**, **DVR** o **Dijkstra** con cualquiera de los drivers.
 
 ### Opción A: TCP local (sin Docker)
 
-Abrir **3 terminales**:
+Abrir **3 terminales** (una por nodo):
 
 **Terminal A**
 ```bash
 source .venv/bin/activate
-make run DRIVER=socket PROTO=flooding NODE=A PORT=9101   TOPO=configs/topo-sample.txt NAMES=configs/names-sample.txt
+make run DRIVER=socket PROTO=flooding NODE=A PORT=9101 TOPO=configs/topo-sample.txt NAMES=configs/names-sample.txt
 ```
 
 **Terminal B**
 ```bash
 source .venv/bin/activate
-make run DRIVER=socket PROTO=flooding NODE=B PORT=9102   TOPO=configs/topo-sample.txt NAMES=configs/names-sample.txt
+make run DRIVER=socket PROTO=flooding NODE=B PORT=9102 TOPO=configs/topo-sample.txt NAMES=configs/names-sample.txt
 ```
 
 **Terminal C**
 ```bash
 source .venv/bin/activate
-make run DRIVER=socket PROTO=flooding NODE=C PORT=9103   TOPO=configs/topo-sample.txt NAMES=configs/names-sample.txt
+make run DRIVER=socket PROTO=flooding NODE=C PORT=9103 TOPO=configs/topo-sample.txt NAMES=configs/names-sample.txt
 ```
 
 Enviar mensajes (cuarta terminal):
 
 ```bash
-# Unicast A -> C
-make send PORT=9101 SRC=A TO=C MSG="hola C, vía socket!"
+# Flooding unicast A -> C
+make send-flood PORT=9101 SRC=A TO=C MSG="hola C, vía Flooding socket!"
 
-# Broadcast A -> todos
+# DVR unicast A -> C
+make send-dvr PORT=9101 SRC=A TO=C MSG="hola C, vía DVR socket!"
+
+# Dijkstra unicast A -> C
+make send-dijkstra PORT=9101 SRC=A TO=C MSG="hola C, vía Dijkstra socket!"
+
+# Broadcast A -> todos (solo flooding)
 make broadcast PORT=9101 SRC=A MSG="broadcast!"
 ```
 
-> Para **DVR**, cambia `PROTO=dvr` (mismos puertos). Deja 5–10 s para que HELLO/INFO intercambien vectores.
+> Para **DVR**, deja 5–10 s para que HELLO/INFO intercambien vectores antes de enviar mensajes.
+
+---
 
 ### Opción B: Redis (con Docker)
 
@@ -177,30 +185,37 @@ docker exec -it algoritmos_enrutamiento_redes-redis-1 redis-cli ping  # PONG
 **A**
 ```bash
 source .venv/bin/activate
-make run DRIVER=redis PROTO=flooding NODE=A   TOPO=configs/topo-sample.txt NAMES=configs/names-redis.json
+make run DRIVER=redis PROTO=flooding NODE=A TOPO=configs/topo-sample.txt NAMES=configs/names-redis.json
 ```
 
 **B**
 ```bash
 source .venv/bin/activate
-make run DRIVER=redis PROTO=flooding NODE=B   TOPO=configs/topo-sample.txt NAMES=configs/names-redis.json
+make run DRIVER=redis PROTO=flooding NODE=B TOPO=configs/topo-sample.txt NAMES=configs/names-redis.json
 ```
 
 **C**
 ```bash
 source .venv/bin/activate
-make run DRIVER=redis PROTO=flooding NODE=C   TOPO=configs/topo-sample.txt NAMES=configs/names-redis.json
+make run DRIVER=redis PROTO=flooding NODE=C TOPO=configs/topo-sample.txt NAMES=configs/names-redis.json
 ```
 
 3) Enviar mensajes (cuarta terminal):
 
 ```bash
-# Unicast A -> C
-make send-redis NAMES=configs/names-redis.json SRC=A TO=C MSG="hola C, vía Redis Flooding!"
+# Flooding unicast A -> C
+make send-redis-flood NAMES_REDIS=configs/names-redis.json SRC=A TO=C MSG="hola C, vía Redis Flooding!"
 
-# Broadcast A -> todos
-make send-redis NAMES=configs/names-redis.json SRC=A TO='*' MSG="broadcast vía Redis!"
+# DVR unicast A -> C
+make send-redis-dvr NAMES_REDIS=configs/names-redis.json SRC=A TO=C MSG="hola C, vía Redis DVR!"
+
+# Dijkstra unicast A -> C
+make send-redis-dijkstra NAMES_REDIS=configs/names-redis.json SRC=A TO=C MSG="hola C, vía Redis Dijkstra!"
+
+# Broadcast A -> todos (solo flooding)
+make send-redis-flood NAMES_REDIS=configs/names-redis.json SRC=A TO='*' MSG="broadcast vía Redis!"
 ```
+
 
 ## Algoritmos
 
