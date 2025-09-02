@@ -21,10 +21,36 @@ run-redis:
 	PYTHONPATH=src $(PYBIN) -m routerlab.cli \
 	  --proto=$(PROTO) --driver=redis --node=$(NODE) \
 	  --topo=$(TOPO) --names=$(NAMES)
-send:
-	$(PYBIN) scripts/send_flood.py 127.0.0.1 $(PORT) $(SRC) '$(TO)' "$(MSG)"
-send-redis:
-	$(PYBIN) scripts/send_redis.py --names=$(NAMES) --src=$(SRC) --to=$(TO) --msg="$(MSG)"
+
+
+# ==== Parámetros por defecto para inyección ====
+PORT ?= 9101
+SRC  ?= A
+TO   ?= C
+MSG  ?= "hola desde routerlab"
+TTL  ?= 8
+NAMES ?= configs/names-redis.json
+
+# ==== Socket (unicast) ====
+send-dijkstra:
+	$(PYBIN) scripts/send_unicast.py 127.0.0.1 $(PORT) $(SRC) $(TO) "$(MSG)" --proto dijkstra --ttl $(TTL)
+
+send-dvr:
+	$(PYBIN) scripts/send_unicast.py 127.0.0.1 $(PORT) $(SRC) $(TO) "$(MSG)" --proto dvr --ttl $(TTL)
+
+send-flood:
+	$(PYBIN) scripts/send_unicast.py 127.0.0.1 $(PORT) $(SRC) $(TO) "$(MSG)" --proto flooding --ttl $(TTL)
+
+# ==== Redis (unicast) ====
+send-redis-dijkstra:
+	$(PYBIN) scripts/send_unicast_redis.py $(NAMES) $(SRC) $(TO) "$(MSG)" --proto dijkstra --ttl $(TTL)
+
+send-redis-dvr:
+	$(PYBIN) scripts/send_unicast_redis.py $(NAMES) $(SRC) $(TO) "$(MSG)" --proto dvr --ttl $(TTL)
+
+send-redis-flood:
+	$(PYBIN) scripts/send_unicast_redis.py $(NAMES) $(SRC) $(TO) "$(MSG)" --proto flooding --ttl $(TTL)
+
 broadcast:
 	$(PYBIN) scripts/send_flood.py 127.0.0.1 $(PORT) $(SRC) '*' "$(MSG)"
 test:
