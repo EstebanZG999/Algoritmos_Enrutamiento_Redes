@@ -5,6 +5,8 @@ from routerlab.core.forwarding import Forwarder
 from routerlab.core.messages import Message
 from routerlab.algorithms.distance_vector import DistanceVector
 from routerlab.algorithms.dijkstra import Dijkstra
+from routerlab.algorithms.link_state import LinkState   
+
 
 def _load_topo(path: str) -> dict[str, list[str]]:
     with open(path, "r", encoding="utf-8") as f:
@@ -28,6 +30,10 @@ class RouterNode:
             next_hop_func: Optional[Callable[[str], Optional[str]]] = self.alg.next_hop
         elif self.proto == "dijkstra":
             self.alg = Dijkstra(topo_path)
+            self.alg.on_init(self.id, self.neighbors)
+            next_hop_func = self.alg.next_hop
+        elif self.proto == "lsr":  
+            self.alg = LinkState()
             self.alg.on_init(self.id, self.neighbors)
             next_hop_func = self.alg.next_hop
         else:

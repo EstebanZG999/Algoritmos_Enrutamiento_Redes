@@ -80,7 +80,7 @@ class Forwarder:
                 results = await asyncio.gather(*tasks, return_exceptions=True)
             return
 
-        if msg.proto in ("dvr", "dijkstra"):
+        if msg.proto in ("dvr", "dijkstra", "lsr"):
             # DVR: usar next_hop calculado por el algoritmo
             if msg.to != self._me and self._route_next_hop is not None:
                 nh = self._route_next_hop(msg.to)

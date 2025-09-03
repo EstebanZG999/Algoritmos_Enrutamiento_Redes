@@ -8,7 +8,7 @@ def main():
     ap.add_argument("src")
     ap.add_argument("to")
     ap.add_argument("msg")
-    ap.add_argument("--proto", choices=["dijkstra","dvr","flooding"], default="dijkstra")
+    ap.add_argument("--proto", choices=["dijkstra","dvr","flooding","lsr"], default="dijkstra")
     ap.add_argument("--ttl", type=int, default=8)
     args = ap.parse_args()
 

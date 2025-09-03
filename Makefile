@@ -41,6 +41,10 @@ send-dvr:
 send-flood:
 	$(PYBIN) scripts/send_unicast.py 127.0.0.1 $(PORT) $(SRC) $(TO) "$(MSG)" --proto flooding --ttl $(TTL)
 
+send-lsr:
+	$(PYBIN) scripts/send_unicast.py 127.0.0.1 $(PORT) $(SRC) $(TO) "$(MSG)" --proto lsr --ttl $(TTL)
+
+
 # ==== Redis (unicast) ====
 send-redis-dijkstra:
 	$(PYBIN) scripts/send_unicast_redis.py $(NAMES) $(SRC) $(TO) "$(MSG)" --proto dijkstra --ttl $(TTL)
@@ -50,6 +54,9 @@ send-redis-dvr:
 
 send-redis-flood:
 	$(PYBIN) scripts/send_unicast_redis.py $(NAMES) $(SRC) $(TO) "$(MSG)" --proto flooding --ttl $(TTL)
+
+send-redis-lsr:
+	$(PYBIN) scripts/send_unicast_redis.py $(NAMES) $(SRC) $(TO) "$(MSG)" --proto lsr --ttl $(TTL)
 
 broadcast:
 	$(PYBIN) scripts/send_flood.py 127.0.0.1 $(PORT) $(SRC) '*' "$(MSG)"

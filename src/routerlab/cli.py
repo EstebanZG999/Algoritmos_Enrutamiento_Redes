@@ -10,7 +10,7 @@ def main():
     p.add_argument(
         "--proto",
         required=True,
-        choices=["flooding", "dvr", "dijkstra"],
+        choices=["flooding", "dvr", "dijkstra","lsr"],
         help="Protocolo de enrutamiento a usar",
     )
     p.add_argument(
