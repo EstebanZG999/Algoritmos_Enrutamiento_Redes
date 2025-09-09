@@ -161,6 +161,10 @@ make send-dvr PORT=9101 SRC=A TO=C MSG="hola C, vía DVR socket!"
 # Dijkstra unicast A -> C
 make send-dijkstra PORT=9101 SRC=A TO=C MSG="hola C, vía Dijkstra socket!"
 
+# Link State Routing A -> C
+make send-lsr PORT=9101 SRC=A TO=C MSG="hola C, vía lsr socket!"
+
+
 # Broadcast A -> todos (solo flooding)
 make broadcast PORT=9101 SRC=A MSG="broadcast!"
 ```
