@@ -44,14 +44,15 @@ def make_redis_client() -> Redis:
     )
 
 
-def build_wire(src: str, to: str, msg: str, proto: str = "flooding", mtype: str = "message", ttl: int = 8) -> Dict:
+def build_wire(src: str, to: str, msg: str, proto: str = "lsr",
+               mtype: str = "message", ttl: int = 8) -> Dict:
     """
     Construye el sobre (envelope) respetando el contrato del lab.
     """
     if ttl < 1:
         raise ValueError("TTL debe ser >= 1")
-    if not src or not to:
-        raise ValueError("src y to no pueden ser vacíos")
+    if not src or (not to and to != "*"):
+        raise ValueError("src y to no pueden ser vacíos (usa '*' para broadcast)")
 
     return {
         "proto": proto,
@@ -59,10 +60,11 @@ def build_wire(src: str, to: str, msg: str, proto: str = "flooding", mtype: str 
         "id": str(uuid.uuid4()),
         "from": src,
         "origin": src,
+        "via": src,
         "to": to,
         "ttl": int(ttl),
         "headers": [],
-        "payload": msg,
+        "payload": {"text": msg},
     }
 
 
@@ -74,7 +76,7 @@ async def main():
     ap.add_argument("--src", required=True, help="Nodo origen lógico (A/B/C...)")
     ap.add_argument("--to", required=True, help="Destino lógico (A/B/C... o '*')")
     ap.add_argument("--msg", required=True, help="Payload a enviar")
-    ap.add_argument("--proto", default="flooding", help="Protocolo (flooding|dvr|lsr|dijkstra). Default: flooding")
+    ap.add_argument("--proto", default="lsr", choices=["flooding","dvr","dijkstra","lsr"])
     ap.add_argument("--type", dest="mtype", default="message", help="Tipo de mensaje (message|info|hello|echo). Default: message")
     ap.add_argument("--ttl", type=int, default=8, help="TTL del mensaje. Default: 8")
     ap.add_argument("--direct", action="store_true",

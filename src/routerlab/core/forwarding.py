@@ -30,46 +30,67 @@ class Forwarder:
             self._seen.discard(mid)
 
     async def handle(self, raw: Dict[str, Any]):
-        # Validar y normalizar
-        msg = Message(**raw)
+        """
+        Manejo robusto de paquetes:
+        - No crashea si llegan tipos desconocidos (ej. 'lsp' de otros equipos).
+        - En 'lsp' los reenvía a la cola de routing si existe; en flooding los ignora.
+        - Mantiene dedup por id y TTL.
+        """
+        # 1) Si es un LSP, NO intentes validar con Message (evita crash por Literal)
+        pkt_type = raw.get("type")
+        if pkt_type == "lsp":
+            # Si tienes cola de eventos de routing, pásalo; si no, lo descartas.
+            if self._rq is not None:
+                await self._rq.put({"type": "lsp", "from": raw.get("from"), "payload": raw.get("payload", {})})
+            return
 
-        # Si no trae origin, setearlo al primer salto
+        # 2) Validación normal para los demás tipos
+        try:
+            msg = Message(**raw)
+        except ValidationError:
+            # Paquete inválido o de tipo desconocido → lo descartamos con log suave
+            print(f"[{self._me}] drop unknown/invalid packet: {raw.get('type')}")
+            return
+
+        # 3) Normalización mínima
         if not msg.origin:
             msg.origin = msg.from_
 
-        # Dedup por id
+        # 4) Dedup anti-loop
         if msg.id in self._seen:
             return
         self._seen.add(msg.id)
         self._order.append((msg.id, time.time()))
         self._gc_seen()
 
-        # TTL
+        # 5) TTL
         if msg.ttl <= 0:
             return
 
-        # Entregar eventos de control a la capa de routing
+        # 6) Entregar eventos de control a routing (hello/info)
         if msg.type in ("hello", "info") and self._rq is not None:
             await self._rq.put({"type": msg.type, "from": msg.from_, "payload": msg.payload})
 
-        # Entrega local de DATA
+        # 7) Entrega local de DATA
         if msg.type == "message":
             if msg.to == self._me:
-                # Unicast: entrego y NO reenvoo
                 print(f"[{self._me}] RX from {msg.origin}: {msg.payload}")
                 return
             if msg.to == "*":
-                # Broadcast: entrego localmente PERO continuo flooding
+                # Broadcast: entrego localmente y sigo flooding
                 print(f"[{self._me}] RX from {msg.origin}: {msg.payload}")
 
-        # Encaminamiento segun proto
+        # 8) Encaminamiento según proto
         if msg.proto == "flooding":
-            # Flooding: reenviar a todos los vecinos menos el emisor
-            nxt = msg.dec()
+            # Reenvía a todos los vecinos excepto el salto previo
+            nxt = msg.dec()            # TTL-1
+            if nxt.ttl <= 0:
+                return
             nxt.from_ = self._me
             nxt.via = self._me
             wire = nxt.as_wire()
 
+            # Determinar hop anterior (prefiere 'via', cae a 'from')
             prev_hop = getattr(msg, "via", None) or msg.from_
             tasks = []
             for nbr in self._neighbors:
@@ -77,15 +98,18 @@ class Forwarder:
                     continue
                 tasks.append(self._send(nbr, wire))
             if tasks:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                await asyncio.gather(*tasks, return_exceptions=True)
             return
 
         if msg.proto in ("dvr", "dijkstra", "lsr"):
-            # DVR: usar next_hop calculado por el algoritmo
+            # Usa next-hop calculado por el algoritmo
             if msg.to != self._me and self._route_next_hop is not None:
                 nh = self._route_next_hop(msg.to)
                 if nh:
-                    await self._send(nh, msg.dec().as_wire())
+                    nxt = msg.dec()
+                    if nxt.ttl > 0:
+                        await self._send(nh, nxt.as_wire())
             return
 
-        # Otros protos (LSR, etc.)
+        # Otros protos → por ahora, descartar en silencio
+        return

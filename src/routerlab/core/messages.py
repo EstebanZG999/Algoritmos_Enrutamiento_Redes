@@ -12,7 +12,7 @@ except Exception:  # pragma: no cover
 import uuid, time
 
 Proto = Literal["dijkstra", "flooding", "lsr", "dvr"]
-Type  = Literal["message", "echo", "info", "hello"]
+Type  = Literal["message", "echo", "info", "hello", "lsp"]
 
 def _coerce_headers(value):
     if value is None:
