@@ -148,9 +148,13 @@ class RouterNode:
                 self.alg.recompute()
 
             elif evt["type"] == "edge":
-                # Ssolo encadenamos si llega
-                self.alg.on_edge_observed(evt["from"], evt["payload"]["to"], evt["payload"]["w"])
-                self.alg.recompute()
+                u = evt["from"]          # quien me lo envió
+                v = self.id              # yo
+                # usa costo real si es vecino directo, si no, deja el que vino
+                w = float(self.neighbors_costs.get(u, evt["payload"].get("w", 1.0)))
+                if hasattr(self.alg, "on_edge_observed"):
+                    if self.alg.on_edge_observed(u, v, w):
+                        self.alg.recompute()
 
     async def run(self):
         print(f"[{self.id}] up. neighbors={self.neighbors_costs if self.neighbors_costs else self.neighbors_list} addr={self.transport.me()} proto={self.proto}")

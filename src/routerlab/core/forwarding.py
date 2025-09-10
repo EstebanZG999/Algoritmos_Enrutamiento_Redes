@@ -72,45 +72,35 @@ class Forwarder:
         if msg.type in ("hello", "info") and self._rq is not None:
             await self._rq.put({"type": msg.type, "from": msg.from_, "payload": msg.payload})
 
-        # 7) Entrega local de DATA
+        # 7) Entrega local de DATA + aprendizaje de borde
         if msg.type == "message":
-            if msg.to == self._me:
-                print(f"[{self._me}] RX from {msg.origin}: {msg.payload}")
-                return
-            if msg.to == "*":
-                # Broadcast: entrego localmente y sigo flooding
-                print(f"[{self._me}] RX from {msg.origin}: {msg.payload}")
-
-        # 7.1) Broadcast universal: si es DATA y to="*", floodea SIEMPRE
-        if msg.type == "message" and msg.to == "*":
-            # Aprendizaje de arista (Persona 2)
             if self._rq is not None:
                 prev_hop = getattr(msg, "via", None) or msg.from_
                 if prev_hop and prev_hop != self._me:
                     await self._rq.put({"type": "edge", "from": prev_hop,
                                         "payload": {"to": self._me, "w": 1.0}})
 
-            # Flooding (idéntico a la rama flooding)
+            if msg.to == self._me:
+                print(f"[{self._me}] RX from {msg.origin}: {msg.payload}")
+                return
+            if msg.to == "*":
+                # Broadcast: entrego localmente (sigo flooding más abajo)
+                print(f"[{self._me}] RX from {msg.origin}: {msg.payload}")
+
+        # 7.1) Broadcast universal → floodear SIEMPRE (independiente del proto)
+        if msg.type == "message" and msg.to == "*":
             nxt = msg.dec()
             if nxt.ttl <= 0:
                 return
-            # incrementa hops en el payload
             payload = nxt.payload if isinstance(nxt.payload, dict) else {}
             payload["hops"] = int(payload.get("hops", 0)) + 1
             nxt.payload = payload
-
             nxt.from_ = self._me
             nxt.via = self._me
             wire = nxt.as_wire()
-
             prev_hop = getattr(msg, "via", None) or msg.from_
-            tasks = []
-            for nbr in self._neighbors:
-                if nbr == prev_hop:
-                    continue
-                tasks.append(self._send(nbr, wire))
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
+            tasks = [self._send(n, wire) for n in self._neighbors if n != prev_hop]
+            if tasks: await asyncio.gather(*tasks, return_exceptions=True)
             return
 
         # 8) Encaminamiento según proto
@@ -141,6 +131,8 @@ class Forwarder:
                 if nh:
                     nxt = msg.dec()
                     if nxt.ttl > 0:
+                        nxt.from_ = self._me
+                        nxt.via = self._me
                         await self._send(nh, nxt.as_wire())
             return
 

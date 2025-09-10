@@ -24,6 +24,9 @@ class LinkState:
         # Motor de flooding interno
         self._flood: Optional[FloodingAlgo] = None
 
+        self.adj_observed: Dict[str, Dict[str, float]] = {}  # bordes aprendidos por tráfico
+        self._dist: Dict[str, float] = {}
+
     # -------------------------------
     # Interfaz estilo RoutingAlgorithm
     # -------------------------------
@@ -75,29 +78,26 @@ class LinkState:
 
     def on_hello(self, neighbor: str, metric: float = 1.0) -> None:
         self._neighbors_costs[neighbor] = float(metric)
-        self.lsdb[self.me] = self._neighbors_costs.copy()
-        # Puedes incrementar un seq propio para anunciar cambios
-        self._bump_seq(self.me)
-        self.recompute()
+        # Activa solo este vecino en mi LSDB
+        changed = self.mark_neighbor_active(neighbor, metric)
+        if changed:
+            self._bump_seq(self.me)
+            self.recompute()
 
     def on_info(self, from_node: str, payload: Dict[str, Any]) -> None:
-        """
-        Acepta dos formatos de LSP:
-        A) Propio del repo:
-           payload = {"lsdb": {"A": {"B": 1.0, "C": 2.0}}}
-        B) Estándar típico:
-           payload = {"self": "A", "neighbors": {"B": 1.0, "C": 2.0}, "seq": 12}
-        """
         if not payload:
             return
 
-        # --- Formato A (lsdb incrmental) ---
+        # 1) Desenrollar si viene como {"lsp": {...}}
+        if "lsp" in payload and isinstance(payload["lsp"], dict):
+            payload = payload["lsp"]
+
+        # 2) Formato A: {"lsdb": {"A": {...}, "B": {...}}}
         if "lsdb" in payload and isinstance(payload["lsdb"], dict):
             changed = False
             for node, neighs in payload["lsdb"].items():
                 if not isinstance(neighs, dict):
                     continue
-                # Sin seq aquí; asumimos actualización válida
                 norm = {n: float(w) for n, w in neighs.items()}
                 if node not in self.lsdb or self.lsdb[node] != norm:
                     self.lsdb[node] = norm
@@ -106,14 +106,13 @@ class LinkState:
                 self.recompute()
             return
 
-        # --- Formato B (self/neighbors/seq) ---
+        # 3) Formato B: {"self": "A", "neighbors": {...}, "seq": 12}
         lsp_src = payload.get("self") or from_node
         nbrs = payload.get("neighbors")
         seq = int(payload.get("seq", 0))
         if not isinstance(nbrs, dict):
             return
 
-        # Dedupe por seq
         last = self._seen_seq.get(lsp_src, -1)
         if seq <= last:
             return
@@ -125,21 +124,14 @@ class LinkState:
             self.recompute()
 
     def recompute(self) -> None:
-        # Construir grafo desde LSDB
-        self._graph = Graph(undirected=True)
-        for u, neighs in self.lsdb.items():
-            for v, w in neighs.items():
-                self._graph.add_edge(u, v, float(w))
-
-        # Ejecutar Dijkstra
+        self._graph = self._build_graph_from_sources()
         dist, prev = dijkstra(self._graph, self.me)
-        # Guardamos prev y calculamos next-hop por destino
+        self._dist = dist
         self._prev = {str(k): (None if v is None else str(v)) for k, v in prev.items()}
-        nh: Dict[str, Optional[str]] = {}
+
+        nh = {}
         for dest in self._prev.keys():
-            if dest == self.me:
-                nh[dest] = None
-                continue
+            if dest == self.me: nh[dest] = None; continue
             hop = _first_hop(self._prev, self.me, dest)
             nh[dest] = hop if hop is None else str(hop)
         self._next = nh
@@ -171,3 +163,39 @@ class LinkState:
         msg_id = str(uuid.uuid4())
         # PUBLICAR EL LSP DENTRO DEL PAYLOAD COMO {"lsp": ...}
         return self._flood.build_data("*", {"lsp": lsp}, msg_id, ttl=8)
+    
+    def on_edge_observed(self, u: str, v: str, w: float) -> bool:
+        print(f"[{self.me}] on_edge_observed(u={u}, v={v}, w_in={w})", flush=True)
+        w = float(w)
+        changed = False
+        d = self.adj_observed.setdefault(u, {})
+        if d.get(v, float("inf")) > w:
+            d[v] = w; changed = True
+        d2 = self.adj_observed.setdefault(v, {})
+        if d2.get(u, float("inf")) > w:
+            d2[u] = w; changed = True
+        if changed:
+            print(f"[{self.me}] learned edge {u}<->{v} w={w}")
+        return changed
+    
+    def _build_graph_from_sources(self) -> Graph:
+        g = Graph(undirected=True)
+        # 1) mis enlaces directos vivos (HELLO aceptados)
+        if self.me in self.lsdb:
+            for v, w in self.lsdb[self.me].items():
+                g.add_edge(self.me, v, float(w))
+        # 2) adyacencias observadas
+        for u, nbrs in self.adj_observed.items():
+            for v, w in nbrs.items():
+                g.add_edge(u, v, float(w))
+        # 3) LSPs de otros (si on_info pobló lsdb)
+        for u, nbrs in self.lsdb.items():
+            if u == self.me: continue
+            for v, w in nbrs.items():
+                g.add_edge(u, v, float(w))
+        return g
+    
+    def _bump_seq(self, node: str) -> int:
+        cur = int(self._seen_seq.get(node, 0)) + 1
+        self._seen_seq[node] = cur
+        return cur
