@@ -62,21 +62,29 @@ class RouterNode:
             route_event_queue=self.route_queue,
         )
 
-        self.HELLO_INTERVAL = int(os.getenv("HELLO_INTERVAL", "5"))
+        self.HELLO_INTERVAL = int(os.getenv("HELLO_INTERVAL", "3"))
         self.INFO_INTERVAL  = int(os.getenv("INFO_INTERVAL",  "5"))
+
+        # Estado de “suscripción”
+        self._last_seen: Dict[str, float] = {}        # vecino -> ts del último hello/info
+        self._active_neighbors: set[str] = set()      # vecinos confirmados (suscriptos)
+        self.SUBSCRIBE_ACK = os.getenv("SUBSCRIBE_ACK", "1") == "1"  # responde hello inmediato
 
     async def _send_hello(self):
         """
-        En topo ponderado, envía metric = costo real del enlace.
+        En topo ponderado, envía metric = costo directo.
+        Incluimos 'subscribe': True como semántica de intención de suscripción.
         """
         while True:
             for nbr in self.neighbors_list:
                 metric = float(self.neighbors_costs.get(nbr, 1.0))
                 msg = Message(proto=self.proto, type="hello",
                               **{"from": self.id}, to=nbr,
-                              payload={"metric": metric}, origin=self.id, via=self.id)
+                              payload={"metric": metric, "subscribe": True},
+                              origin=self.id, via=self.id)
                 await self.transport.send(nbr, msg.as_wire())
             await asyncio.sleep(self.HELLO_INTERVAL)
+
 
     async def _send_info(self):
         """
@@ -90,7 +98,8 @@ class RouterNode:
             payload = self.alg.build_info()
             if self.proto == "lsr" and "lsp" not in payload:
                 payload = {"lsp": payload}
-            for nbr in self.neighbors_list:
+            targets = list(self._active_neighbors) if self._active_neighbors else self.neighbors_list
+            for nbr in targets:
                 msg = Message(proto=self.proto, type="info",
                               **{"from": self.id}, to=nbr,
                               payload=payload, origin=self.id, via=self.id)
@@ -98,16 +107,49 @@ class RouterNode:
             await asyncio.sleep(self.INFO_INTERVAL)
 
     async def _routing_task(self):
+        loop = asyncio.get_event_loop()
         while True:
             evt = await self.route_queue.get()
             if not self.alg:
                 continue
+
+            now = loop.time()
+
             if evt["type"] == "hello":
-                self.alg.on_hello(evt["from"], evt["payload"].get("metric", 1.0))
-                self.alg.recompute()
+                src = evt["from"]
+                metric = evt["payload"].get("metric", 1.0)
+                self._last_seen[src] = now
+
+                # Si el vecino no estaba activo, activarlo en LSDB propia
+                changed = False
+                if hasattr(self.alg, "mark_neighbor_active") and self.alg.is_neighbor_known(src):
+                    if self.alg.mark_neighbor_active(src, metric):
+                        changed = True
+                        self._active_neighbors.add(src)
+                        print(f"[{self.id}] subscribe: vecino {src} ACTIVO (metric={metric})")
+
+                # Pasar evento a algoritmo (por si mantiene otra contabilidad)
+                self.alg.on_hello(src, metric)
+                if changed:
+                    self.alg.recompute()
+
+                # ACK de suscripción (hello inmediato de vuelta) si está habilitado
+                if self.SUBSCRIBE_ACK:
+                    ack = Message(proto=self.proto, type="hello",
+                                  **{"from": self.id}, to=src,
+                                  payload={"metric": float(self.neighbors_costs.get(src, 1.0)), "ack": True},
+                                  origin=self.id, via=self.id)
+                    await self.transport.send(src, ack.as_wire())
+
             elif evt["type"] == "info":
-                # Pasa tal cual (LSR sabrá leer payload["lsp"] o payload["lsdb"])
-                self.alg.on_info(evt["from"], evt["payload"])
+                src = evt["from"]
+                self._last_seen[src] = now
+                self.alg.on_info(src, evt["payload"])
+                self.alg.recompute()
+
+            elif evt["type"] == "edge":
+                # Ssolo encadenamos si llega
+                self.alg.on_edge_observed(evt["from"], evt["payload"]["to"], evt["payload"]["w"])
                 self.alg.recompute()
 
     async def run(self):

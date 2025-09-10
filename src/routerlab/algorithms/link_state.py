@@ -29,9 +29,8 @@ class LinkState:
     # -------------------------------
     def on_init(self, me: str, neighbors) -> None:
         """
-        neighbors puede ser:
-          - list[str]                 → costos = 1.0
-          - dict[str, float|int]      → costos dados
+        Nodos nacen con tabla vacía y registran solo la "lista/costos" de vecinos conocidos por config, 
+        pero NO poblan la LSDB hasta recibir HELLO de ellos.
         """
         self.me = me
         if isinstance(neighbors, dict):
@@ -41,14 +40,38 @@ class LinkState:
             self._neighbors_list = list(neighbors)
             self._neighbors_costs = {n: 1.0 for n in self._neighbors_list}
 
-        # Inicializar LSDB con mis enlaces directos
-        self.lsdb = {self.me: self._neighbors_costs.copy()}
-
-        # Inicializar flooding (requiere lista)
+        # Arrancamos VACÍOS (sin entradas en LSDB)
+        self.lsdb = {}
+        self._prev, self._next = {}, {}
+        # Mantén el motor de flooding
         self._flood = FloodingAlgo(self.me, self._neighbors_list)
 
-        # Calcular tabla inicial
-        self.recompute()
+        # Tabla vacía al inicio
+        self._graph = Graph(undirected=True)
+        self._dist = {}
+        self._seen_seq = {}
+
+        # Log “tabla vacía”
+        print(f"[{self.me}] init: tabla vacía; vecinos conocidos={self._neighbors_list}")
+
+    def mark_neighbor_active(self, neighbor: str, metric: float = 1.0) -> bool:
+        """
+        Marca/actualiza un vecino como ACTIVO dentro de mi LSDB (entrada propia).
+        Devuelve True si la LSDB cambió.
+        """
+        if self.me not in self.lsdb:
+            self.lsdb[self.me] = {}
+        old = self.lsdb[self.me].get(neighbor)
+        new = float(metric)
+        if old is None or old != new:
+            self.lsdb[self.me][neighbor] = new
+            return True
+        return False
+
+    def is_neighbor_known(self, neighbor: str) -> bool:
+        """Devuelve True si el vecino está en la lista conocida por config."""
+        return neighbor in self._neighbors_costs or neighbor in self._neighbors_list
+
 
     def on_hello(self, neighbor: str, metric: float = 1.0) -> None:
         self._neighbors_costs[neighbor] = float(metric)

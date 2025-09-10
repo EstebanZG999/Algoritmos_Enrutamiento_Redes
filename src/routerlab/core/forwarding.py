@@ -4,6 +4,7 @@ import asyncio, time
 from typing import Dict, Any, Callable, Set, Deque, Optional
 from collections import deque
 from routerlab.core.messages import Message
+from pydantic import ValidationError
 
 class Forwarder:
     def __init__(self,
@@ -79,6 +80,38 @@ class Forwarder:
             if msg.to == "*":
                 # Broadcast: entrego localmente y sigo flooding
                 print(f"[{self._me}] RX from {msg.origin}: {msg.payload}")
+
+        # 7.1) Broadcast universal: si es DATA y to="*", floodea SIEMPRE
+        if msg.type == "message" and msg.to == "*":
+            # Aprendizaje de arista (Persona 2)
+            if self._rq is not None:
+                prev_hop = getattr(msg, "via", None) or msg.from_
+                if prev_hop and prev_hop != self._me:
+                    await self._rq.put({"type": "edge", "from": prev_hop,
+                                        "payload": {"to": self._me, "w": 1.0}})
+
+            # Flooding (idéntico a la rama flooding)
+            nxt = msg.dec()
+            if nxt.ttl <= 0:
+                return
+            # incrementa hops en el payload
+            payload = nxt.payload if isinstance(nxt.payload, dict) else {}
+            payload["hops"] = int(payload.get("hops", 0)) + 1
+            nxt.payload = payload
+
+            nxt.from_ = self._me
+            nxt.via = self._me
+            wire = nxt.as_wire()
+
+            prev_hop = getattr(msg, "via", None) or msg.from_
+            tasks = []
+            for nbr in self._neighbors:
+                if nbr == prev_hop:
+                    continue
+                tasks.append(self._send(nbr, wire))
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            return
 
         # 8) Encaminamiento según proto
         if msg.proto == "flooding":
