@@ -226,7 +226,7 @@ Conecta los nodos a un servidor Redis ya existente sin levantar contenedores.
 1. Variables de entorno
    Crea .env.local en la raíz:
    ```bash
-   cp .env.example .env.local
+   cp .env.local .env
    ```
 2. Preparación
    ```bash
@@ -253,13 +253,13 @@ Conecta los nodos a un servidor Redis ya existente sin levantar contenedores.
      --driver redis \
      --node A \
      --topo configs/topo-sample.txt \
-     --names configs/names-redis.json
+     --names configs/names-redis.txt
 
    # Nodo B
-   python -m routerlab.cli --proto flooding --driver redis --node B --topo configs/topo-sample.txt --names configs/names-redis.json
+   python -m routerlab.cli --proto flooding --driver redis --node B --topo configs/topo-sample.txt --names configs/names-redis.txt
 
    # Nodo C
-   python -m routerlab.cli --proto flooding --driver redis --node C --topo configs/topo-sample.txt --names configs/names-redis.json
+   python -m routerlab.cli --proto flooding --driver redis --node C --topo configs/topo-sample.txt --names configs/names-redis.txt
    ```
 
 6. Enviar mensaje A → C
