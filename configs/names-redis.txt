@@ -1,8 +1,8 @@
 {
   "type": "names",
   "config": {
-    "A": "router:A",
-    "B": "router:B",
-    "C": "router:C"
+    "A": "sec30.grupo4.nodo0",
+    "B": "sec30.grupo4.nodo1",
+    "C": "sec30.grupo4.nodo2"
   }
 }
