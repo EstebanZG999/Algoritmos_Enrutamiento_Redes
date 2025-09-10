@@ -70,7 +70,7 @@ async def main():
     load_dotenv()
 
     ap = argparse.ArgumentParser(description="Inyecta un mensaje en Redis Pub/Sub para pruebas de routing.")
-    ap.add_argument("--names", required=True, help="Ruta a names-redis.json (type=names, config={A:'router:A',...})")
+    ap.add_argument("--names", required=True, help="Ruta a names-redis-11.txt (type=names, config={A:'router:A',...})")
     ap.add_argument("--src", required=True, help="Nodo origen lógico (A/B/C...)")
     ap.add_argument("--to", required=True, help="Destino lógico (A/B/C... o '*')")
     ap.add_argument("--msg", required=True, help="Payload a enviar")
