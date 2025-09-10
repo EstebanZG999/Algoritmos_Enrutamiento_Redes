@@ -262,7 +262,7 @@ Conecta los nodos a un servidor Redis ya existente sin levantar contenedores.
    python -m routerlab.cli --proto flooding --driver redis --node C --topo configs/topo-sample.txt --names configs/names-redis.txt
    ```
 
-6. Enviar mensaje ej. A → C
+6. Enviar mensaje (en otra terminal) ej. A → C
    ```bash
    python3 scripts/send_redis.py \
      --names configs/names-redis.txt \
