@@ -220,6 +220,57 @@ make send-redis-dijkstra NAMES_REDIS=configs/names-redis.json SRC=A TO=C MSG="ho
 make send-redis-flood NAMES_REDIS=configs/names-redis.json SRC=A TO='*' MSG="broadcast vía Redis!"
 ```
 
+### Opción C: Redis remoto (sin Docker)
+Conecta los nodos a un servidor Redis ya existente sin levantar contenedores.
+
+1. Variables de entorno
+   Crea .env.local en la raíz:
+   ```bash
+   cp .env.example .env.local
+   ```
+2. Preparación
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+    ```
+
+3. Opción rápida para hacer visible el paquete
+   ```bash
+   export PYTHONPATH="$(pwd)/src"
+   ```
+
+4. (Opcional, más limpio) Instalar en editable:
+   ```bash
+   pip install -e .
+   ```
+   
+5. Levantar nodos (una terminal por nodo)
+   ```bash
+   # Nodo A
+   python -m routerlab.cli \
+     --proto flooding \
+     --driver redis \
+     --node A \
+     --topo configs/topo-sample.txt \
+     --names configs/names-redis.json
+
+   # Nodo B
+   python -m routerlab.cli --proto flooding --driver redis --node B --topo configs/topo-sample.txt --names configs/names-redis.json
+
+   # Nodo C
+   python -m routerlab.cli --proto flooding --driver redis --node C --topo configs/topo-sample.txt --names configs/names-redis.json
+   ```
+
+6. Enviar mensaje A → C
+   ```bash
+   python scripts/send_redis.py \
+     --names configs/names-redis.json \
+     --src A \
+     --to C \
+     --msg "hola C (Redis remoto)"
+   ```
+
 
 ## Algoritmos
 
