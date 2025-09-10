@@ -245,30 +245,14 @@ Conecta los nodos a un servidor Redis ya existente sin levantar contenedores.
    pip install -e .
    ```
    
-5. Levantar nodos (una terminal por nodo)
+5. Levantar nodo
    ```bash
-   # Nodo A
-   python -m routerlab.cli \
-     --proto flooding \
-     --driver redis \
-     --node A \
-     --topo configs/topo-sample.txt \
-     --names configs/names-redis.txt
-
-   # Nodo B
-   python -m routerlab.cli --proto flooding --driver redis --node B --topo configs/topo-sample.txt --names configs/names-redis.txt
-
-   # Nodo C
-   python -m routerlab.cli --proto flooding --driver redis --node C --topo configs/topo-sample.txt --names configs/names-redis.txt
+   python -m routerlab.cli   --proto flooding   --driver redis   --node N4   --topo configs/topo-11.txt   --names configs/names-redis-11.txt
    ```
 
-6. Enviar mensaje (en otra terminal) ej. A → C
+6. Enviar mensaje (en otra terminal)
    ```bash
-   python3 scripts/send_redis.py \
-     --names configs/names-redis.txt \
-     --src A \
-     --to C \
-     --msg "hola C (Redis remoto)"
+   python3 scripts/send_redis.py   --names configs/names-redis-11.txt   --src N4   --to Nx   --msg "..."
    ```
    
 
