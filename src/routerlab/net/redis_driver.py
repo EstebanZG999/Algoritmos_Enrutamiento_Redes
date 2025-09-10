@@ -1,26 +1,40 @@
-# Transporte Redis (Pub/Sub) para RouterLab
+# src/routerlab/net/redis_driver.py
 import os, json, asyncio
 from typing import AsyncIterator, Dict, Any
 from redis.asyncio import Redis
 from routerlab.net.transport import Transport
-
+from dotenv import load_dotenv
 
 class RedisDriver(Transport):
     """
     Pub/Sub por canal: cada nodo escucha su canal (names-redis.json).
-    send(dest) = PUBLISH a canal del destino con payload JSON.
+    send(dest) = PUBLISH al canal del destino con payload JSON.
     """
     def __init__(self, node: str, names_path: str):
-        self._node = node
-        self._names = self._load_names(names_path)
+        load_dotenv()
 
-        # Conexion (host/port/db opcional por entorno)
+        self._node = node
+        self.names_path = names_path
+
+        # Cargar mapa de canales
+        self._names = self._load_names(self.names_path)
+
+        # Conexion (host/port/db)
+        # Soporta URL (REDIS_URL) o tripleta host/port/password
+        url = os.getenv("REDIS_URL")
         host = os.getenv("REDIS_HOST", "127.0.0.1")
         port = int(os.getenv("REDIS_PORT", "6379"))
         db   = int(os.getenv("REDIS_DB",   "0"))
-        password = os.getenv("REDIS_PASSWORD", None)
+        password = os.getenv("REDIS_PASSWORD")
+        tls = os.getenv("REDIS_TLS", "0") == "1"
 
-        self._r = Redis(host=host, port=port, db=db, password=password, decode_responses=False)
+        if url:
+            self._r = Redis.from_url(url, decode_responses=False, ssl=tls)
+        else:
+            self._r = Redis(
+                host=host, port=port, db=db, password=password,
+                ssl=tls, decode_responses=False
+            )
 
         # Canal propio de escucha
         self._my_channel = self._names.get(self._node)
@@ -30,7 +44,7 @@ class RedisDriver(Transport):
     def _load_names(self, path: str) -> dict[str, str]:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        assert data.get("type") == "names"
+        assert data.get("type") == "names", "names-redis.json inválido: falta type=names"
         return data["config"]
 
     def me(self) -> str:
@@ -58,7 +72,6 @@ class RedisDriver(Transport):
             else:
                 continue
 
-            # Normaliza campos minimos
             raw.setdefault("from", raw.get("from") or self._node)
             raw.setdefault("origin", raw["from"])
             raw.setdefault("via", raw["from"])
@@ -73,5 +86,4 @@ class RedisDriver(Transport):
             wire = json.dumps(message, separators=(",", ":")).encode("utf-8")
             await self._r.publish(channel, wire)
         except Exception:
-            # tolerante a fallos transitorios
             return
