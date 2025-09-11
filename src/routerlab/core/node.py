@@ -3,7 +3,6 @@
 import json, asyncio, os
 from typing import Dict, Any, Optional, Callable
 from routerlab.core.forwarding import Forwarder
-from routerlab.core.messages import Message
 from routerlab.algorithms.distance_vector import DistanceVector
 from routerlab.algorithms.dijkstra import Dijkstra
 from routerlab.algorithms.link_state import LinkState
@@ -73,6 +72,8 @@ class RouterNode:
     async def _send_hello(self):
         """
         Envía mensajes tipo 'hello' a los vecinos inmediatos cada HELLO_INTERVAL segundos.
+        Ahora solo envía hellos a vecinos que existen en la topología,
+        y si hay lista de activos, solo a ellos.
         Formato:
         {
             "type": "hello",
@@ -82,7 +83,11 @@ class RouterNode:
         }
         """
         while True:
-            for nbr in self.neighbors_list:
+            # Si ya tengo vecinos activos, saludo solo a ellos
+            # Si no, saludo a todos los definidos en la topología
+            destinos = list(self._active_neighbors) if self._active_neighbors else self.neighbors_list
+
+            for nbr in destinos:
                 metric = float(self.neighbors_costs.get(nbr, 1.0))
                 msg = {
                     "type": "hello",
@@ -91,13 +96,14 @@ class RouterNode:
                     "hops": metric
                 }
                 await self.transport.send(nbr, json.dumps(msg))
-            await asyncio.sleep(self.HELLO_INTERVAL)
 
+            await asyncio.sleep(self.HELLO_INTERVAL)
 
 
     async def _send_info(self):
         """
         Propaga a los vecinos la información de costos como mensajes tipo 'message'.
+        Ahora solo anuncia enlaces a vecinos que están activos (respondieron hello).
         Formato:
         {
             "type": "message",
@@ -106,10 +112,16 @@ class RouterNode:
             "hops": peso
         }
         """
+        if not self.alg:
+            return
+
         while True:
-            targets = list(self._active_neighbors) if self._active_neighbors else self.neighbors_list
-            for nbr in targets:
-                for dest, weight in self.neighbors_costs.items():
+            # Solo usamos vecinos confirmados (activos), si no hay, usamos la lista base
+            enlaces_confirmados = list(self._active_neighbors) if self._active_neighbors else []
+
+            for nbr in self.neighbors_list:  # a quién envío mis mensajes
+                for dest in enlaces_confirmados:
+                    weight = self.neighbors_costs.get(dest, 1.0)
                     msg = {
                         "type": "message",
                         "from": self.id,
@@ -117,8 +129,11 @@ class RouterNode:
                         "hops": float(weight)
                     }
                     await self.transport.send(nbr, json.dumps(msg))
+
             await asyncio.sleep(self.INFO_INTERVAL)
 
+
+ 
     async def _routing_task(self):
         loop = asyncio.get_event_loop()
         while True:
@@ -172,6 +187,14 @@ class RouterNode:
         ]
         try:
             async for msg in self.transport.run():
+                # 👇 AQUI: parsea de string a dict
+                import json
+                if isinstance(msg, str):
+                    try:
+                        msg = json.loads(msg)
+                    except Exception:
+                        print(f"[{self.id}] drop invalid JSON: {msg}")
+                        continue
                 await self.forwarder.handle(msg)
         finally:
             for t in tasks:

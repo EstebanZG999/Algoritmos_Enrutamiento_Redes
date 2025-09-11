@@ -3,7 +3,6 @@
 import asyncio, time
 from typing import Dict, Any, Callable, Set, Deque, Optional
 from collections import deque
-from routerlab.core.messages import Message
 from pydantic import ValidationError
 
 class Forwarder:
