@@ -32,6 +32,114 @@ class Forwarder:
 
     async def handle(self, raw: Dict[str, Any]):
         """
+        Manejo de paquetes en formato simple:
+        { "type": "hello"|"message", "from": nodo, "to": nodo, "hops": peso }
+        - hello: se pasa a la cola de routing
+        - message: se pasa a la cola y se floodea
+        """
+        pkt_type = raw.get("type")
+
+        # Validar campos mínimos
+        if "from" not in raw or "to" not in raw or "type" not in raw:
+            print(f"[{self._me}] drop invalid packet: {raw}")
+            return
+
+        # Dedup: usamos (from,to,type,hops) como id
+        msg_id = f"{raw['from']}->{raw['to']}:{raw['type']}:{raw.get('hops')}"
+        if msg_id in self._seen:
+            return
+        self._seen.add(msg_id)
+        self._order.append((msg_id, time.time()))
+        self._gc_seen()
+
+        # --- Procesar tipos ---
+        if pkt_type == "hello":
+            if self._rq is not None:
+                await self._rq.put({
+                    "type": "hello",
+                    "from": raw["from"],
+                    "to": raw["to"],
+                    "hops": raw.get("hops", 1.0)
+                })
+            return
+
+        elif pkt_type == "message":
+            # Enviar evento a routing
+            if self._rq is not None:
+                await self._rq.put({
+                    "type": "message",
+                    "from": raw["from"],
+                    "to": raw["to"],
+                    "hops": raw.get("hops", 1.0)
+                })
+
+            # Flooding: reenviar a todos menos al que lo envió
+            prev_hop = raw["from"]
+            for nbr in self._neighbors:
+                if nbr == prev_hop:
+                    continue
+                await self._send(nbr, raw)
+            return
+
+        else:
+            print(f"[{self._me}] drop unknown packet type: {pkt_type}")
+            return
+
+        """
+        Manejo de paquetes en formato simple:
+        { "type": "hello"|"message", "from": nodo, "to": nodo, "hops": peso }
+        - hello: se pasa a la cola de routing
+        - message: se pasa a la cola y se floodea
+        """
+        pkt_type = raw.get("type")
+
+        # Validar campos mínimos
+        if "from" not in raw or "to" not in raw or "type" not in raw:
+            print(f"[{self._me}] drop invalid packet: {raw}")
+            return
+
+        # Dedup: usamos (from,to,type,hops) como id
+        msg_id = f"{raw['from']}->{raw['to']}:{raw['type']}:{raw.get('hops')}"
+        if msg_id in self._seen:
+            return
+        self._seen.add(msg_id)
+        self._order.append((msg_id, time.time()))
+        self._gc_seen()
+
+        # --- Procesar tipos ---
+        if pkt_type == "hello":
+            if self._rq is not None:
+                await self._rq.put({
+                    "type": "hello",
+                    "from": raw["from"],
+                    "to": raw["to"],
+                    "hops": raw.get("hops", 1.0)
+                })
+            return
+
+        elif pkt_type == "message":
+            # Enviar evento a routing
+            if self._rq is not None:
+                await self._rq.put({
+                    "type": "message",
+                    "from": raw["from"],
+                    "to": raw["to"],
+                    "hops": raw.get("hops", 1.0)
+                })
+
+            # Flooding: reenviar a todos menos al que lo envió
+            prev_hop = raw["from"]
+            for nbr in self._neighbors:
+                if nbr == prev_hop:
+                    continue
+                await self._send(nbr, raw)
+            return
+
+        else:
+            print(f"[{self._me}] drop unknown packet type: {pkt_type}")
+            return
+
+        """
         Manejo robusto de paquetes:
         - No crashea si llegan tipos desconocidos (ej. 'lsp' de otros equipos).
         - En 'lsp' los reenvía a la cola de routing si existe; en flooding los ignora.
