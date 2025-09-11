@@ -199,3 +199,57 @@ class LinkState:
             if cost != float("inf"):
                 nh = self._next.get(dst)
                 print(f"{self.me} -> {dst} : {self._fmt_cost(cost)} (nh={nh})")
+
+    # -------------------------------
+    # Borrar cosas y mantener coherencia
+    # -------------------------------
+    def remove_neighbor(self, neighbor: str) -> bool:
+        """
+        Elimina un vecino directo de MI fila en la LSDB (self.me).
+        Devuelve True si cambió algo.
+        """
+        if self.me in self.lsdb and neighbor in self.lsdb[self.me]:
+            del self.lsdb[self.me][neighbor]
+            # opcional: también olvida lo observado hacia ese vecino
+            self.adj_observed.get(self.me, {}).pop(neighbor, None)
+            self.adj_observed.get(neighbor, {}).pop(self.me, None)
+            return True
+        return False
+
+
+    def purge_node_everywhere(self, node: str) -> bool:
+        """
+        Elimina un nodo NO vecino (o cualquiera) de:
+          - LSDB (su entrada y referencias en otras entradas)
+          - adj_observed (bordes aprendidos por tráfico)
+          - caches de rutas (prev/next)
+        Devuelve True si cambió algo.
+        """
+        changed = False
+
+        # entrada propia del nodo
+        if node in self.lsdb:
+            del self.lsdb[node]
+            changed = True
+
+        # referencias en otras entradas
+        for u in list(self.lsdb.keys()):
+            if node in self.lsdb[u]:
+                del self.lsdb[u][node]
+                changed = True
+
+        # observado por tráfico
+        if node in self.adj_observed:
+            del self.adj_observed[node]
+            changed = True
+        for u in list(self.adj_observed.keys()):
+            if node in self.adj_observed[u]:
+                del self.adj_observed[u][node]
+                changed = True
+
+        # caches de rutas
+        self._next.pop(node, None)
+        self._prev.pop(node, None)
+
+        return changed
+
