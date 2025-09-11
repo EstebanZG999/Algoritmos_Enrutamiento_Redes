@@ -1,6 +1,5 @@
 # src/routerlab/core/forwarding.py
-# Lógica de forwarding con Flooding (solo HELLO y MESSAGE)
-
+# Logica de forwarding (demo con Flooding)
 import asyncio, time
 from typing import Dict, Any, Callable, Set, Deque, Optional
 from collections import deque
@@ -33,60 +32,88 @@ class Forwarder:
 
     async def handle(self, raw: Dict[str, Any]):
         """
-        Manejo de paquetes en el laboratorio:
-        - Deduplicación con TTL.
-        - "hello" → descubrimiento de vecinos.
-        - "message" → describe adyacencias (from,to,hops).
-        - Se floodean los "message" a todos los vecinos menos al anterior.
+        Manejo robusto de paquetes:
+        - No crashea si llegan tipos desconocidos (ej. 'lsp' de otros equipos).
+        - En 'lsp' los reenvía a la cola de routing si existe; en flooding los ignora.
+        - Mantiene dedup por id y TTL.
         """
-        print(f"[{self._me}] RAW in handle: {raw}")  # 👈 debug
+        # 1) Si es un LSP, NO intentes validar con Message (evita crash por Literal)
+        pkt_type = raw.get("type")
+        if pkt_type == "lsp":
+            # Si tienes cola de eventos de routing, pásalo; si no, lo descartas.
+            if self._rq is not None:
+                await self._rq.put({"type": "lsp", "from": raw.get("from"), "payload": raw.get("payload", {})})
+            return
+
+        # 2) Validación normal para los demás tipos
         try:
             msg = Message(**raw)
         except ValidationError:
+            # Paquete inválido o de tipo desconocido → lo descartamos con log suave
             print(f"[{self._me}] drop unknown/invalid packet: {raw.get('type')}")
             return
 
-        # Normalización de origen
+        # 3) Normalización mínima
         if not msg.origin:
             msg.origin = msg.from_
 
-        # Deduplicación anti-loop
+        # 4) Dedup anti-loop
         if msg.id in self._seen:
             return
         self._seen.add(msg.id)
         self._order.append((msg.id, time.time()))
         self._gc_seen()
 
-        # TTL
+        # 5) TTL
         if msg.ttl <= 0:
             return
 
-        # Eventos de control: hello y message pasan a la cola de routing
-        if msg.type in ("hello", "message") and self._rq is not None:
-            await self._rq.put({
-                "type": msg.type,
-                "from": msg.from_,
-                "to": msg.to,
-                "hops": getattr(msg, "hops", None)
-            })
+        # 6) Entregar eventos de control a routing (hello/info)
+        if msg.type in ("hello", "info") and self._rq is not None:
+            await self._rq.put({"type": msg.type, "from": msg.from_, "payload": msg.payload})
 
-        # Entrega local de MESSAGE si soy destino o broadcast
+        # 7) Entrega local de DATA + aprendizaje de borde
         if msg.type == "message":
+            if self._rq is not None:
+                prev_hop = getattr(msg, "via", None) or msg.from_
+                if prev_hop and prev_hop != self._me:
+                    await self._rq.put({"type": "edge", "from": prev_hop,
+                                        "payload": {"to": self._me, "w": 1.0}})
+
             if msg.to == self._me:
-                print(f"[{self._me}] RX edge: {msg.from_} -> {msg.to} cost={msg.hops}")
+                print(f"[{self._me}] RX from {msg.origin}: {msg.payload}")
                 return
             if msg.to == "*":
-                print(f"[{self._me}] RX broadcast from {msg.from_} (hops={msg.hops})")
+                # Broadcast: entrego localmente (sigo flooding más abajo)
+                print(f"[{self._me}] RX from {msg.origin}: {msg.payload}")
 
-        # Flooding: reenviar MESSAGE a todos los vecinos menos al hop previo
-        if msg.type == "message":
+        # 7.1) Broadcast universal → floodear SIEMPRE (independiente del proto)
+        if msg.type == "message" and msg.to == "*":
             nxt = msg.dec()
+            if nxt.ttl <= 0:
+                return
+            payload = nxt.payload if isinstance(nxt.payload, dict) else {}
+            payload["hops"] = int(payload.get("hops", 0)) + 1
+            nxt.payload = payload
+            nxt.from_ = self._me
+            nxt.via = self._me
+            wire = nxt.as_wire()
+            prev_hop = getattr(msg, "via", None) or msg.from_
+            tasks = [self._send(n, wire) for n in self._neighbors if n != prev_hop]
+            if tasks: await asyncio.gather(*tasks, return_exceptions=True)
+            return
+
+        # 8) Encaminamiento según proto
+        if msg.proto == "flooding":
+            # Reenvía a todos los vecinos excepto el salto previo
+            nxt = msg.dec()            # TTL-1
             if nxt.ttl <= 0:
                 return
             nxt.from_ = self._me
             nxt.via = self._me
             wire = nxt.as_wire()
 
+            # Determinar hop anterior (prefiere 'via', cae a 'from')
             prev_hop = getattr(msg, "via", None) or msg.from_
             tasks = []
             for nbr in self._neighbors:
@@ -98,6 +125,7 @@ class Forwarder:
             return
 
         if msg.proto in ("dvr", "dijkstra", "lsr"):
+            # Usa next-hop calculado por el algoritmo
             if msg.to != self._me and self._route_next_hop is not None:
                 nh = self._route_next_hop(msg.to)
                 if nh:
@@ -108,5 +136,5 @@ class Forwarder:
                         await self._send(nh, nxt.as_wire())
             return
 
-        # Otros protos → descartar
+        # Otros protos → por ahora, descartar en silencio
         return

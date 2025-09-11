@@ -1,4 +1,4 @@
-# Link State Routing (LSR) con Flooding + Dijkstra (compat dict/list, seq dedupe)
+# Link State Routing (LSR) con Flooding + Dijkstra (compat dict/list, LSP dual-format, seq dedupe)
 from typing import Dict, Any, Optional
 from routerlab.algorithms.dijkstra import Graph, dijkstra, _first_hop
 from routerlab.algorithms.flooding import FloodingAlgo
@@ -32,7 +32,7 @@ class LinkState:
     # -------------------------------
     def on_init(self, me: str, neighbors) -> None:
         """
-        Nodos nacen con tabla vacía y registran solo la "lista/costos" de vecinos conocidos por config,
+        Nodos nacen con tabla vacía y registran solo la "lista/costos" de vecinos conocidos por config, 
         pero NO poblan la LSDB hasta recibir HELLO de ellos.
         """
         self.me = me
@@ -46,7 +46,7 @@ class LinkState:
         # Arrancamos VACÍOS (sin entradas en LSDB)
         self.lsdb = {}
         self._prev, self._next = {}, {}
-        # Motor de flooding
+        # Mantén el motor de flooding
         self._flood = FloodingAlgo(self.me, self._neighbors_list)
 
         # Tabla vacía al inicio
@@ -54,10 +54,8 @@ class LinkState:
         self._dist = {}
         self._seen_seq = {}
 
-        # Debug inicial
+        # Log “tabla vacía”
         print(f"[{self.me}] init: tabla vacía; vecinos conocidos={self._neighbors_list}")
-        self.print_lsdb()
-        self.print_routing_table()
 
     def mark_neighbor_active(self, neighbor: str, metric: float = 1.0) -> bool:
         """
@@ -77,38 +75,53 @@ class LinkState:
         """Devuelve True si el vecino está en la lista conocida por config."""
         return neighbor in self._neighbors_costs or neighbor in self._neighbors_list
 
+
     def on_hello(self, neighbor: str, metric: float = 1.0) -> None:
         self._neighbors_costs[neighbor] = float(metric)
+        # Activa solo este vecino en mi LSDB
         changed = self.mark_neighbor_active(neighbor, metric)
         if changed:
             self._bump_seq(self.me)
             self.recompute()
-            # 🔥 Floodear la nueva arista propia
-            self._flood_edge(self.me, neighbor, metric)
 
-    def on_message(self, src: str, to: str, hops: float) -> None:
-        """
-        Procesa {type:'message', from:src, to:dst, hops:w}.
-        Actualiza la LSDB con la adyacencia src<->to si es nueva o cambió.
-        """
-        if src not in self.lsdb:
-            self.lsdb[src] = {}
+    def on_info(self, from_node: str, payload: Dict[str, Any]) -> None:
+        if not payload:
+            return
 
-        old_cost = self.lsdb[src].get(to)
-        new_cost = float(hops)
+        # 1) Desenrollar si viene como {"lsp": {...}}
+        if "lsp" in payload and isinstance(payload["lsp"], dict):
+            payload = payload["lsp"]
 
-        if old_cost is None or old_cost != new_cost:
-            self.lsdb[src][to] = new_cost
-            if to not in self.lsdb:
-                self.lsdb[to] = {}
-            self.lsdb[to][src] = new_cost
-            print(f"[{self.me}] LSDB: agregado edge {src}<->{to} cost={new_cost}")
+        # 2) Formato A: {"lsdb": {"A": {...}, "B": {...}}}
+        if "lsdb" in payload and isinstance(payload["lsdb"], dict):
+            changed = False
+            for node, neighs in payload["lsdb"].items():
+                if not isinstance(neighs, dict):
+                    continue
+                norm = {n: float(w) for n, w in neighs.items()}
+                if node not in self.lsdb or self.lsdb[node] != norm:
+                    self.lsdb[node] = norm
+                    changed = True
+            if changed:
+                self.recompute()
+            return
+
+        # 3) Formato B: {"self": "A", "neighbors": {...}, "seq": 12}
+        lsp_src = payload.get("self") or from_node
+        nbrs = payload.get("neighbors")
+        seq = int(payload.get("seq", 0))
+        if not isinstance(nbrs, dict):
+            return
+
+        last = self._seen_seq.get(lsp_src, -1)
+        if seq <= last:
+            return
+        self._seen_seq[lsp_src] = seq
+
+        norm = {n: float(w) for n, w in nbrs.items()}
+        if lsp_src not in self.lsdb or self.lsdb[lsp_src] != norm:
+            self.lsdb[lsp_src] = norm
             self.recompute()
-            # 🔥 Floodear la arista recién descubierta
-            self._flood_edge(src, to, new_cost)
-        else:
-            # No hay cambio → no recalcular
-            pass
 
     def recompute(self) -> None:
         self._graph = self._build_graph_from_sources()
@@ -118,75 +131,70 @@ class LinkState:
 
         nh = {}
         for dest in self._prev.keys():
-            if dest == self.me:
-                nh[dest] = None
-                continue
+            if dest == self.me: nh[dest] = None; continue
             hop = _first_hop(self._prev, self.me, dest)
             nh[dest] = hop if hop is None else str(hop)
         self._next = nh
 
-        # Debug solo si algo cambió
-        self.print_lsdb()
-        self.print_routing_table()
-
     def next_hop(self, dest: str) -> Optional[str]:
         return self._next.get(dest)
 
-    # -------------------------------
-    # Flooding de nuevas adyacencias
-    # -------------------------------
-    def _flood_edge(self, src: str, dst: str, cost: float) -> None:
-        """Construye y floodea un mensaje de adyacencia nueva."""
-        if not self._flood:
-            return
-        msg_id = str(uuid.uuid4())
-        data = {
-            "type": "message",
-            "proto": "lsr",
-            "from": src,
-            "to": dst,
-            "id": msg_id,
-            "ttl": 8,
-            "hops": cost,
+    def build_info(self) -> Dict[str, Any]:
+        """
+        Construye LSP propio en formato B (self/neighbors/seq) para interoperar.
+        Los equipos que usen formato A podrán integrarlo vía on_info (ramal B).
+        """
+        return {
+            "self": self.me,
+            "neighbors": self._neighbors_costs.copy(),
+            "seq": self._bump_seq(self.me),
         }
-        # Se envía a todos los vecinos conocidos
-        for nbr in self._neighbors_list:
-            if nbr != src and nbr != dst:  # evita rebote inmediato
-                out_list = self._flood.forward(data, prev_hop=self.me)
-                for target, pkt in out_list:
-                    # ⚠️ aquí no tenemos self._send, Forwarder se encarga
-                    # Basta con que regrese la lista y Forwarder lo use
-                    print(f"[{self.me}] flood: reenviando edge {src}<->{dst} a {target}")
 
     # -------------------------------
-    # Debug / Utilidades
+    # Integración con Flooding
     # -------------------------------
-    def print_routing_table(self):
-        print(f"\n[{self.me}] Tabla de ruteo (next-hop):")
-        if not self._next:
-            print("  (vacía)")
-            return
-        for dest, nh in self._next.items():
-            if dest == self.me:
-                continue
-            print(f"  {self.me} -> {dest} via {nh}")
-
+    def flood_lsa(self) -> Dict[str, Any]:
+        """
+        Construye un paquete de flooding con nuestro LSP (broadcast '*').
+        """
+        if not self._flood:
+            raise RuntimeError("Flooding no inicializado (llama a on_init primero).")
+        lsp = self.build_info()                 # tu LSP en formato {"self","neighbors","seq"} ó el que uses
+        msg_id = str(uuid.uuid4())
+        # PUBLICAR EL LSP DENTRO DEL PAYLOAD COMO {"lsp": ...}
+        return self._flood.build_data("*", {"lsp": lsp}, msg_id, ttl=8)
+    
+    def on_edge_observed(self, u: str, v: str, w: float) -> bool:
+        print(f"[{self.me}] on_edge_observed(u={u}, v={v}, w_in={w})", flush=True)
+        w = float(w)
+        changed = False
+        d = self.adj_observed.setdefault(u, {})
+        if d.get(v, float("inf")) > w:
+            d[v] = w; changed = True
+        d2 = self.adj_observed.setdefault(v, {})
+        if d2.get(u, float("inf")) > w:
+            d2[u] = w; changed = True
+        if changed:
+            print(f"[{self.me}] learned edge {u}<->{v} w={w}")
+        return changed
+    
     def _build_graph_from_sources(self) -> Graph:
         g = Graph(undirected=True)
+        # 1) mis enlaces directos vivos (HELLO aceptados)
+        if self.me in self.lsdb:
+            for v, w in self.lsdb[self.me].items():
+                g.add_edge(self.me, v, float(w))
+        # 2) adyacencias observadas
+        for u, nbrs in self.adj_observed.items():
+            for v, w in nbrs.items():
+                g.add_edge(u, v, float(w))
+        # 3) LSPs de otros (si on_info pobló lsdb)
         for u, nbrs in self.lsdb.items():
+            if u == self.me: continue
             for v, w in nbrs.items():
                 g.add_edge(u, v, float(w))
         return g
-
-    def print_lsdb(self):
-        print(f"\n[{self.me}] LSDB actual:")
-        if not self.lsdb:
-            print("  (vacía)")
-            return
-        for u, nbrs in self.lsdb.items():
-            for v, w in nbrs.items():
-                print(f"  {u} -> {v} : {w}")
-
+    
     def _bump_seq(self, node: str) -> int:
         cur = int(self._seen_seq.get(node, 0)) + 1
         self._seen_seq[node] = cur
