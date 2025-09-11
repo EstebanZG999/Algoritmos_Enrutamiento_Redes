@@ -1,8 +1,8 @@
 {
   "type": "names",
   "config": {
-    "A": "sec30.grupo4.nodo0",
-    "B": "sec30.grupo4.nodo1",
-    "C": "sec30.grupo4.nodo2"
+    "A": "sec30.grupoA.nodoA",
+    "B": "sec30.grupoB.nodoB",
+    "C": "sec30.grupoC.nodoC"
   }
 }

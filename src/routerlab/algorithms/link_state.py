@@ -86,7 +86,6 @@ class LinkState:
             print(f"[{self.me}] Aprendí un nuevo enlace: {from_node} -> {to_node} (hops={hops})")
             self.recompute()
 
-
     def recompute(self) -> None:
         self._graph = self._build_graph_from_sources()
         dist, prev = dijkstra(self._graph, self.me)
@@ -101,6 +100,8 @@ class LinkState:
             hop = _first_hop(self._prev, self.me, dest)
             nh[dest] = hop if hop is None else str(hop)
         self._next = nh
+        self.print_lsdb()
+        self.print_routes()
 
     def next_hop(self, dest: str) -> Optional[str]:
         return self._next.get(dest)
@@ -139,3 +140,62 @@ class LinkState:
             for v, w in nbrs.items():
                 g.add_edge(u, v, float(w))
         return g
+
+    # -------------------------------
+    # Utilidades de Tabla / Inspección
+    # -------------------------------
+    def lsdb_snapshot(self) -> dict[str, dict[str, float]]:
+        """
+        LSDB consolidada = enlaces directos vivos (self.lsdb[self.me])
+                         + adyacencias observadas (self.adj_observed)
+                         + LSPs de otros (self.lsdb[otros]).
+        """
+        snap: dict[str, dict[str, float]] = {}
+
+        # enlaces directos vivos (hello)
+        if self.me in self.lsdb:
+            snap[self.me] = {v: float(w) for v, w in self.lsdb[self.me].items()}
+
+        # adyacencias observadas
+        for u, nbrs in self.adj_observed.items():
+            d = snap.setdefault(u, {})
+            for v, w in nbrs.items():
+                d[v] = min(float(w), float(d.get(v, float("inf"))))
+
+        # LSPs de otros nodos
+        for u, nbrs in self.lsdb.items():
+            if u == self.me:
+                continue
+            d = snap.setdefault(u, {})
+            for v, w in nbrs.items():
+                d[v] = min(float(w), float(d.get(v, float("inf"))))
+
+        return snap
+
+    def _fmt_cost(self, x):
+        try:
+            x = float(x)
+            return int(x) if x.is_integer() else round(x, 3)
+        except Exception:
+            return x
+
+    def print_lsdb(self):
+        """Imprime la LSDB consolidada (legible)."""
+        snap = self.lsdb_snapshot()
+        print(f"[{self.me}] LSDB:")
+        for u in sorted(snap.keys()):
+            parts = [f"{v}:{self._fmt_cost(w)}" for v, w in sorted(snap[u].items())]
+            print(f"  {u} -> {{ " + ", ".join(parts) + " }}")
+
+    def print_routes(self):
+        """Imprime la tabla de rutas (distancias desde self.me)."""
+        print(f"[{self.me}] Tabla de rutas (Dijkstra):")
+        print("Ruta      : Costo")
+        print("------------------")
+        for dst in sorted(self._dist.keys()):
+            if dst == self.me:
+                continue
+            cost = self._dist.get(dst, float("inf"))
+            if cost != float("inf"):
+                nh = self._next.get(dst)
+                print(f"{self.me} -> {dst} : {self._fmt_cost(cost)} (nh={nh})")
