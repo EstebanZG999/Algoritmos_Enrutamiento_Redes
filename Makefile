@@ -62,3 +62,9 @@ broadcast:
 	$(PYBIN) scripts/send_flood.py 127.0.0.1 $(PORT) $(SRC) '*' "$(MSG)"
 test:
 	PYTHONPATH=src $(PYBIN) -m pytest -q $(TEST) --ignore=docker --ignore=.venv --ignore=configs --ignore=scripts
+
+# ==== Redis (run específico) ====
+run-redis-lsr:
+	PYTHONPATH=src $(PYBIN) -m routerlab.cli \
+	  --proto=lsr --driver=redis --node=$(NODE) \
+	  --topo=$(TOPO) --names=$(NAMES)

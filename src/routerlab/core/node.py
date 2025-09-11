@@ -6,7 +6,7 @@ from routerlab.core.forwarding import Forwarder
 from routerlab.algorithms.distance_vector import DistanceVector
 from routerlab.algorithms.dijkstra import Dijkstra
 from routerlab.algorithms.link_state import LinkState
-from routerlab.core.messages import make_hello, make_message
+from routerlab.core.messages import make_hello, make_message, addr_to_node
 
 def _load_topo(path: str) -> dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
@@ -164,20 +164,20 @@ class RouterNode:
                 # BYPASS forwarder para el modo 'socket' + mensajes simples
                 t = msg.get("type")
                 if t in ("hello", "message"):
-                    # Normalizamos forma de evento como la espera _routing_task
                     if t == "hello":
                         await self.route_queue.put({
                             "type": "hello",
-                            "from": msg.get("from"),
+                            "from": addr_to_node(msg.get("from")),   # 👈 convertir a N#
                             "payload": {"metric": float(msg.get("hops", 1.0))}
                         })
                     else:
                         await self.route_queue.put({
                             "type": "message",
-                            "from": msg.get("from"),
-                            "to":   msg.get("to"),
+                            "from": addr_to_node(msg.get("from")),   # 👈 convertir a N#
+                            "to":   addr_to_node(msg.get("to")),     # 👈 convertir a N#
                             "hops": float(msg.get("hops", 1.0))
                         })
+
 
         finally:
             for t in tasks:
@@ -200,10 +200,9 @@ class RouterNode:
             ]
             for n in expired_neighbors:
                 self._active_neighbors.discard(n)
-                if hasattr(self.alg, "remove_neighbor") and self.alg.remove_neighbor(n):
+                if hasattr(self.alg, "purge_node_everywhere") and self.alg.purge_node_everywhere(n):
                     print(f"[{self.id}] neighbor expired: {n} (>{self.NEIGHBOR_DEAD}s sin HELLO)")
                     self.alg.recompute()
-
             # Nodos no vecinos que expiraron por falta de INFO/LSP
             lsdb = getattr(self.alg, "lsdb", {}) or {}
             # Nodos que aparecen como 'from'
