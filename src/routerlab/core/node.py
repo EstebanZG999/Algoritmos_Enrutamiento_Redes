@@ -1,5 +1,4 @@
-# src/routerlab/core/node.py
-# Ciclo de vida del nodo (routing task + timers)
+
 import json, asyncio, os
 from typing import Dict, Any, Optional, Callable
 from routerlab.core.forwarding import Forwarder
@@ -87,22 +86,26 @@ class RouterNode:
                 await self.transport.send(nbr, wire)
             await asyncio.sleep(self.HELLO_INTERVAL)
 
-
     async def _send_info(self):
         """
-        Propaga a los vecinos mis enlaces directos confirmados como mensajes 'message'.
+        Propaga TODA la LSDB que conozco (mis enlaces + enlaces aprendidos)
         """
         if not self.alg:
             return
         while True:
             confirmed = list(self._active_neighbors) if self._active_neighbors else []
+            snapshot = self.alg.lsdb_snapshot()  # 👈 obtenemos toda la LSDB consolidada
+
             for nbr in self.neighbors_list:
-                for dest in confirmed:
-                    weight = float(self.neighbors_costs.get(dest, 1.0))
-                    wire = make_message(self.id, dest, weight)
-                    await self.transport.send(nbr, wire)
+                for u, adj in snapshot.items():
+                    for v, w in adj.items():
+                        wire = make_message(u, v, w)
+                        print(f"[MESSAGE][{self.id}] reenviando {u}->{v} w={w} a {nbr}")
+                        await self.transport.send(nbr, wire)
+
             await asyncio.sleep(self.INFO_INTERVAL)
- 
+
+
     async def _routing_task(self):
         loop = asyncio.get_event_loop()
         while True:

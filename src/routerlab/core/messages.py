@@ -1,4 +1,3 @@
-# src/routerlab/core/messages.py
 from typing import Dict, Any
 
 def _node_to_addr(node: str, group_prefix: str = "grupo") -> str:

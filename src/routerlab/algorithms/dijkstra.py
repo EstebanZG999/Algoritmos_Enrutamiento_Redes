@@ -135,7 +135,6 @@ def build_next_hops(prev: Dict[Node, Optional[Node]], source: Node) -> Dict[Node
     return next_hop
 
 def _first_hop(prev: Dict[Node, Optional[Node]], source: Node, dest: Node) -> Optional[Node]:
-    # Recorre hacia atrás: dest <- ... <- source, y toma el nodo justo después de source
     path = reconstruct_path(prev, source, dest)
     if not path or path[0] != source or len(path) < 2:
         return None

@@ -1,4 +1,3 @@
-# Link State Routing (LSR) con Flooding + Dijkstra (mensajes planos)
 from typing import Dict, Any, Optional
 from routerlab.algorithms.dijkstra import Graph, dijkstra, _first_hop
 from routerlab.algorithms.flooding import FloodingAlgo
@@ -71,6 +70,10 @@ class LinkState:
         return neighbor in self._neighbors_costs or neighbor in self._neighbors_list
 
     def on_hello(self, neighbor: str, metric: float = 1.0) -> None:
+        if not neighbor or neighbor == "*":
+            print(f"[WARN][{self.me}] HELLO inválido (neighbor={neighbor}) → ignorado")
+            return
+
         self._neighbors_costs[neighbor] = float(metric)
         # Activa solo este vecino en mi LSDB
         changed = self.mark_neighbor_active(neighbor, metric)
@@ -78,6 +81,14 @@ class LinkState:
             self.recompute()
 
     def on_message(self, from_node: str, to_node: str, hops: float) -> None:
+        if not from_node or not to_node:
+            print(f"[WARN][{self.me}] Mensaje inválido (from={from_node}, to={to_node}) → ignorado")
+            return
+        if from_node == "*" or to_node == "*":
+            print(f"[WARN][{self.me}] Ignorando enlace fantasma: {from_node} -> {to_node}")
+            return
+
+
         if from_node not in self.lsdb:
             self.lsdb[from_node] = {}
         old = self.lsdb[from_node].get(to_node)
