@@ -82,6 +82,8 @@ class RouterNode:
             for nbr in targets:
                 metric = float(self.neighbors_costs.get(nbr, 1.0))
                 wire = make_hello(self.id, nbr, metric)
+                print(f"[HELLO][{self.id}] HELLO enviado -> {wire}")  
+
                 await self.transport.send(nbr, wire)
             await asyncio.sleep(self.HELLO_INTERVAL)
 
@@ -114,6 +116,8 @@ class RouterNode:
                 src = evt["from"]
                 metric = float(evt.get("payload", {}).get("metric", 1.0))
                 self._last_seen[src] = now
+                print(f"[HELLO][{self.id}] Recibido HELLO de {src} (metric={metric})")
+
 
                 changed = False
                 if hasattr(self.alg, "mark_neighbor_active") and self.alg.is_neighbor_known(src):
@@ -167,14 +171,14 @@ class RouterNode:
                     if t == "hello":
                         await self.route_queue.put({
                             "type": "hello",
-                            "from": addr_to_node(msg.get("from")),   # 👈 convertir a N#
+                            "from": addr_to_node(msg.get("from")),   
                             "payload": {"metric": float(msg.get("hops", 1.0))}
                         })
                     else:
                         await self.route_queue.put({
                             "type": "message",
-                            "from": addr_to_node(msg.get("from")),   # 👈 convertir a N#
-                            "to":   addr_to_node(msg.get("to")),     # 👈 convertir a N#
+                            "from": addr_to_node(msg.get("from")),   
+                            "to":   addr_to_node(msg.get("to")),     
                             "hops": float(msg.get("hops", 1.0))
                         })
 
